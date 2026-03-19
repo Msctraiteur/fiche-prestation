@@ -141,7 +141,7 @@ Réponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte ava
 }`;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('https://corsproxy.io/?url=https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
