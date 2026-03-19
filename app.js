@@ -118,7 +118,7 @@ Reponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte avan
 {"invoice_ref":"numero de facture","client":"nom complet du client ou organisation","date_prestation":"date de levenement pas la date de facture","lieu":"lieu ville de la prestation","adultes_repas":"nombre de convives adultes pour le repas","adultes_vinh":"nombre adultes vin dhonneur si different sinon meme valeur","enfants_repas":"nombre enfants si mentionne sinon vide","cocktails":["liste des noms de cocktails mentionnes ou tableau vide si non precise"],"entree":"entree du diner","plat":"plat principal","accompagnement":"accompagnement du plat","fromage":"fromage si mentionne","dessert":"dessert","cafe":"Inclus si le cafe est mentionne sinon vide","pain":"Inclus si le pain est mentionne sinon vide","service_inclus":"Oui ou Non selon la facture","vaisselle_inclus":"Oui ou Non","nappage_inclus":"Oui ou Non si nappage est facture comme prestation separee cest Oui","mobilier_inclus":"Oui ou Non mobilier non compris cest Non","boissons_info":"info sur les boissons soft alcool compris ou non","commentaires":"informations utiles transport conditions particulieres allergies remarques"}`;
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
