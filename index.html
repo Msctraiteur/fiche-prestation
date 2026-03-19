@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>MSC – Fiche Prestation</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1B3A6B">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MSC Fiche">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- API KEY MODAL -->
+<div id="apiModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-logo">MSC</div>
+    <h2>Clé API Anthropic</h2>
+    <p>Pour analyser vos factures, entrez votre clé API Anthropic.<br>Elle sera stockée uniquement sur cet appareil.</p>
+    <div class="field">
+      <label>Clé API (commence par sk-ant-…)</label>
+      <input type="password" id="apiKeyInput" placeholder="sk-ant-api03-…" autocomplete="off" />
+    </div>
+    <p class="modal-hint">📍 Trouvez votre clé sur <strong>console.anthropic.com</strong> → API Keys</p>
+    <button class="btn btn-primary btn-full" onclick="saveApiKey()">Enregistrer et continuer</button>
+  </div>
+</div>
+
+<header>
+  <div class="logo-badge">MSC</div>
+  <div class="header-text">
+    <h1>Marc Sainte-Claire</h1>
+    <p>Fiche Prestation — Analyse de facture</p>
+  </div>
+  <button class="btn-settings" onclick="openSettings()" title="Paramètres">⚙️</button>
+</header>
+
+<div class="container">
+
+  <!-- UPLOAD ZONE -->
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" id="fileInput" accept=".pdf" />
+    <div class="upload-icon">📄</div>
+    <h2>Déposer une facture PDF</h2>
+    <p>Appuyez pour sélectionner · Glissez-déposez sur PC</p>
+    <div class="upload-formats">PDF uniquement</div>
+  </div>
+
+  <!-- STATUS -->
+  <div class="status-bar hidden" id="statusBar">
+    <div class="spinner"></div>
+    <span id="statusText">Analyse en cours…</span>
+  </div>
+
+  <!-- FICHE -->
+  <div class="fiche hidden" id="fiche">
+
+    <div class="fiche-header">
+      <div>
+        <h2>Fiche Contact Client</h2>
+        <div class="invoice-ref" id="invoiceRef">–</div>
+      </div>
+      <div class="fiche-date" id="dateGenerated"></div>
+    </div>
+
+    <div class="fiche-body">
+
+      <!-- COORDONNÉES -->
+      <div class="section">
+        <div class="section-title">📋 Coordonnées</div>
+        <div class="section-content">
+          <div class="field-grid">
+            <div class="field span-2"><label>Nom / Organisation client</label><input type="text" id="f_client" /></div>
+            <div class="field"><label>Date de la prestation</label><input type="text" id="f_date" /></div>
+            <div class="field span-2"><label>Adresse – Lieu de la prestation</label><input type="text" id="f_lieu" /></div>
+            <div class="field"><label>Nom / Prénom accueillant</label><input type="text" id="f_accueillant" /></div>
+            <div class="field"><label>Téléphone accueillant</label><input type="tel" id="f_tel" /></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HORAIRES -->
+      <div class="section">
+        <div class="section-title">🕐 Horaires</div>
+        <div class="section-content">
+          <div class="field-grid">
+            <div class="field"><label>Cuisine – Arrivée</label><input type="text" id="f_cuisine_arrivee" /></div>
+            <div class="field"><label>Service – Arrivée</label><input type="text" id="f_service_arrivee" /></div>
+            <div class="field"><label>Invités – Arrivée</label><input type="text" id="f_invites_arrivee" /></div>
+            <div class="field"><label>Cérémonie laïque</label><input type="text" id="f_ceremonie" /></div>
+            <div class="field"><label>Vin d'honneur</label><input type="text" id="f_h_vinh" /></div>
+            <div class="field"><label>Entrée</label><input type="text" id="f_h_entree" /></div>
+            <div class="field"><label>Plat</label><input type="text" id="f_h_plat" /></div>
+            <div class="field"><label>Fromage</label><input type="text" id="f_h_fromage" /></div>
+            <div class="field"><label>Dessert</label><input type="text" id="f_h_dessert" /></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONVIVES -->
+      <div class="section">
+        <div class="section-title">👥 Convives</div>
+        <div class="section-content">
+          <div class="field-grid">
+            <div class="field"><label>Adultes – Vin d'honneur</label><input type="number" id="f_adultes_vinh" /></div>
+            <div class="field"><label>Adultes – Repas</label><input type="number" id="f_adultes_repas" /></div>
+            <div class="field"><label>Adultes – Végé/Végan</label><input type="number" id="f_adultes_vege" /></div>
+            <div class="field"><label>Enfants – Vin d'honneur</label><input type="number" id="f_enfants_vinh" /></div>
+            <div class="field"><label>Enfants – Repas</label><input type="number" id="f_enfants_repas" /></div>
+            <div class="field"><label>Enfants – Végé/Végan</label><input type="number" id="f_enfants_vege" /></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BOISSONS -->
+      <div class="section">
+        <div class="section-title">🍷 Boissons</div>
+        <div class="section-content">
+          <div class="field-grid">
+            <div class="field"><label>Vin d'honneur</label><input type="text" id="f_b_vinh" /></div>
+            <div class="field"><label>Repas</label><input type="text" id="f_b_repas" /></div>
+            <div class="field"><label>Dessert</label><input type="text" id="f_b_dessert" /></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MENU ADULTE -->
+      <div class="section">
+        <div class="section-title">🍽️ Menu Adulte</div>
+        <div class="section-content">
+          <p class="subsection-label">Pièces cocktail sélectionnées</p>
+          <div class="cocktail-list" id="cocktailList"></div>
+
+          <p class="subsection-label" style="margin-top:20px;">Ateliers</p>
+          <div class="field" style="margin-bottom:20px;"><input type="text" id="f_ateliers" placeholder="Ateliers sélectionnés…" /></div>
+
+          <div class="field-grid">
+            <div class="field span-2"><label>Entrée / Mise en bouche</label><input type="text" id="f_entree" /></div>
+            <div class="field span-2"><label>Le plat</label><input type="text" id="f_plat" /></div>
+            <div class="field span-2"><label>Accompagnement</label><input type="text" id="f_accompagnement" /></div>
+            <div class="field span-2"><label>Le fromage</label><input type="text" id="f_fromage" /></div>
+            <div class="field span-2"><label>Le dessert</label><input type="text" id="f_dessert" /></div>
+            <div class="field"><label>Le café</label><input type="text" id="f_cafe" /></div>
+            <div class="field"><label>Le pain</label><input type="text" id="f_pain" /></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOGISTIQUE -->
+      <div class="section">
+        <div class="section-title">⚙️ Logistique – Inclus dans la prestation</div>
+        <div class="section-content">
+          <div class="logistique-grid">
+            <div class="logistique-item" id="wrap_service">
+              <span class="log-icon">🍽️</span>
+              <span class="log-label">Service</span>
+              <select id="f_service" onchange="updateLogStyle('service')">
+                <option value="">–</option><option value="Oui">Oui ✅</option><option value="Non">Non ❌</option>
+              </select>
+            </div>
+            <div class="logistique-item" id="wrap_mobilier">
+              <span class="log-icon">🪑</span>
+              <span class="log-label">Mobilier</span>
+              <select id="f_mobilier" onchange="updateLogStyle('mobilier')">
+                <option value="">–</option><option value="Oui">Oui ✅</option><option value="Non">Non ❌</option>
+              </select>
+            </div>
+            <div class="logistique-item" id="wrap_vaisselle">
+              <span class="log-icon">🥂</span>
+              <span class="log-label">Vaisselle</span>
+              <select id="f_vaisselle" onchange="updateLogStyle('vaisselle')">
+                <option value="">–</option><option value="Oui">Oui ✅</option><option value="Non">Non ❌</option>
+              </select>
+            </div>
+            <div class="logistique-item" id="wrap_nappage">
+              <span class="log-icon">🎀</span>
+              <span class="log-label">Nappage</span>
+              <select id="f_nappage" onchange="updateLogStyle('nappage')">
+                <option value="">–</option><option value="Oui">Oui ✅</option><option value="Non">Non ❌</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MENU ENFANT -->
+      <div class="section">
+        <div class="section-title">🧒 Menu Enfant</div>
+        <div class="section-content">
+          <div class="field-grid">
+            <div class="field"><label>Entrée</label><input type="text" id="f_enf_entree" /></div>
+            <div class="field"><label>Plat</label><input type="text" id="f_enf_plat" /></div>
+            <div class="field"><label>Dessert</label><input type="text" id="f_enf_dessert" /></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LES PETITS PLUS -->
+      <div class="section">
+        <div class="section-title">✨ Les Petits Plus</div>
+        <div class="section-content">
+          <div class="field-grid">
+            <div class="field"><label>Les petits creux de la nuit</label><input type="text" id="f_nuit" /></div>
+            <div class="field"><label>Le lendemain</label><input type="text" id="f_lendemain" /></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COMMENTAIRES -->
+      <div class="section">
+        <div class="section-title">💬 Commentaires</div>
+        <div class="section-content">
+          <div class="field">
+            <textarea id="f_commentaires" rows="5" placeholder="Allergies, remarques, demandes particulières, transport, conditions spécifiques…"></textarea>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="resetAll()">🔄 Nouvelle facture</button>
+      <button class="btn btn-secondary" onclick="window.print()">🖨️ Imprimer</button>
+      <button class="btn btn-gold" onclick="downloadCSV()">📥 Exporter CSV</button>
+    </div>
+
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
