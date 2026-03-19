@@ -14,14 +14,14 @@ const COCKTAILS = [
 ];
 
 // ── API KEY MANAGEMENT ──
-function getApiKey() { return localStorage.getItem('msc_gemini_key') || ''; }
+function getApiKey() { return localStorage.getItem('msc_api_key') || ''; }
 function saveApiKey() {
   const key = document.getElementById('apiKeyInput').value.trim();
-  if (key.length < 10) {
-    alert('Clé API invalide.\nVérifiez sur aistudio.google.com');
+  if (!key.startsWith("sk-ant-")) {
+    alert('Clé API invalide.\nVérifiez sur console.anthropic.com');
     return;
   }
-  localStorage.setItem('msc_gemini_key', key);
+  localStorage.setItem('msc_api_key', key);
   document.getElementById('apiModal').classList.add('hidden');
 }
 function openSettings() {
@@ -104,7 +104,7 @@ async function processPDF(file) {
   }
 }
 
-// ── GEMINI API (100% gratuit) ──
+// ── ANTHROPIC API ──
 async function analyseAvecGemini(text, filename, apiKey) {
   const prompt = `Tu es un assistant specialise dans l'analyse de factures du traiteur Marc Sainte-Claire. Analyse ce texte de facture et extrais toutes les informations disponibles.
 
@@ -118,21 +118,26 @@ Reponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte avan
 {"invoice_ref":"numero de facture","client":"nom complet du client ou organisation","date_prestation":"date de levenement pas la date de facture","lieu":"lieu ville de la prestation","adultes_repas":"nombre de convives adultes pour le repas","adultes_vinh":"nombre adultes vin dhonneur si different sinon meme valeur","enfants_repas":"nombre enfants si mentionne sinon vide","cocktails":["liste des noms de cocktails mentionnes ou tableau vide si non precise"],"entree":"entree du diner","plat":"plat principal","accompagnement":"accompagnement du plat","fromage":"fromage si mentionne","dessert":"dessert","cafe":"Inclus si le cafe est mentionne sinon vide","pain":"Inclus si le pain est mentionne sinon vide","service_inclus":"Oui ou Non selon la facture","vaisselle_inclus":"Oui ou Non","nappage_inclus":"Oui ou Non si nappage est facture comme prestation separee cest Oui","mobilier_inclus":"Oui ou Non mobilier non compris cest Non","boissons_info":"info sur les boissons soft alcool compris ou non","commentaires":"informations utiles transport conditions particulieres allergies remarques"}`;
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-calls': 'true'
+      },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 1500 }
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }]
       })
     });
 
     if (!response.ok) {
       const err = await response.json();
       hideStatus();
-      if (response.status === 400 || response.status === 403) {
-        alert('Cle API invalide.\nVerifiez votre cle dans les parametres et assurez-vous de\ncopier la cle depuis aistudio.google.com');
+      if (response.status === 401) {
+        alert('Clé API invalide. Vérifiez votre clé dans les paramètres (⚙️).');
         openSettings();
         return;
       }
@@ -140,7 +145,7 @@ Reponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte avan
     }
 
     const data = await response.json();
-    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const raw = data.content.map(i => i.text || '').join('');
     const clean = raw.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
     fillFiche(parsed, filename);
