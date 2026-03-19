@@ -14,14 +14,14 @@ const COCKTAILS = [
 ];
 
 // ── API KEY MANAGEMENT ──
-function getApiKey() { return localStorage.getItem('msc_api_key') || ''; }
+function getApiKey() { return localStorage.getItem('msc_gemini_key') || ''; }
 function saveApiKey() {
   const key = document.getElementById('apiKeyInput').value.trim();
-  if (!key.startsWith('sk-ant-')) {
-    alert('La clé API doit commencer par sk-ant-…\nVérifiez sur console.anthropic.com');
+  if (key.length < 10) {
+    alert('Clé API invalide.\nVérifiez sur aistudio.google.com');
     return;
   }
-  localStorage.setItem('msc_api_key', key);
+  localStorage.setItem('msc_gemini_key', key);
   document.getElementById('apiModal').classList.add('hidden');
 }
 function openSettings() {
@@ -86,7 +86,6 @@ async function processPDF(file) {
     document.getElementById('apiModal').classList.remove('hidden');
     return;
   }
-
   showStatus('Lecture du PDF…');
   try {
     const arrayBuffer = await file.arrayBuffer();
@@ -98,69 +97,42 @@ async function processPDF(file) {
       fullText += content.items.map(item => item.str).join(' ') + '\n';
     }
     showStatus('Analyse IA de la facture en cours…');
-    await analyseWithClaude(fullText, file.name, apiKey);
+    await analyseAvecGemini(fullText, file.name, apiKey);
   } catch (err) {
     hideStatus();
     alert('Erreur lors de la lecture du PDF :\n' + err.message);
   }
 }
 
-// ── CLAUDE API ──
-async function analyseWithClaude(text, filename, apiKey) {
-  const prompt = `Tu es un assistant spécialisé dans l'analyse de factures du traiteur Marc Sainte-Claire. Analyse ce texte de facture et extrais toutes les informations disponibles.
+// ── GEMINI API (100% gratuit) ──
+async function analyseAvecGemini(text, filename, apiKey) {
+  const prompt = `Tu es un assistant specialise dans l'analyse de factures du traiteur Marc Sainte-Claire. Analyse ce texte de facture et extrais toutes les informations disponibles.
 
 TEXTE DE LA FACTURE :
 ---
 ${text}
 ---
 
-Réponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte avant ou après) :
+Reponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte avant ou apres) :
 
-{
-  "invoice_ref": "numéro de facture",
-  "client": "nom complet du client ou organisation",
-  "date_prestation": "date de l'événement (pas la date de facture)",
-  "lieu": "lieu/ville de la prestation",
-  "adultes_repas": "nombre de convives adultes pour le repas (cherche la quantité principale)",
-  "adultes_vinh": "nombre adultes vin d'honneur si différent, sinon même valeur",
-  "enfants_repas": "nombre enfants si mentionné",
-  "cocktails": ["liste des noms de cocktails mentionnés, ou [] si non précisé"],
-  "entree": "entrée du dîner",
-  "plat": "plat principal",
-  "accompagnement": "accompagnement du plat",
-  "fromage": "fromage si mentionné",
-  "dessert": "dessert",
-  "cafe": "Inclus si le café est mentionné, sinon vide",
-  "pain": "Inclus si le pain est mentionné, sinon vide",
-  "service_inclus": "Oui ou Non selon la facture (cherche 'service' dans inclus)",
-  "vaisselle_inclus": "Oui ou Non",
-  "nappage_inclus": "Oui ou Non (cherche si nappage est facturé comme prestation séparée = Oui)",
-  "mobilier_inclus": "Oui ou Non (mobilier non compris = Non)",
-  "boissons_info": "info sur les boissons (soft, alcool, compris ou non)",
-  "commentaires": "informations utiles : transport, conditions particulières, allergies, remarques"
-}`;
+{"invoice_ref":"numero de facture","client":"nom complet du client ou organisation","date_prestation":"date de levenement pas la date de facture","lieu":"lieu ville de la prestation","adultes_repas":"nombre de convives adultes pour le repas","adultes_vinh":"nombre adultes vin dhonneur si different sinon meme valeur","enfants_repas":"nombre enfants si mentionne sinon vide","cocktails":["liste des noms de cocktails mentionnes ou tableau vide si non precise"],"entree":"entree du diner","plat":"plat principal","accompagnement":"accompagnement du plat","fromage":"fromage si mentionne","dessert":"dessert","cafe":"Inclus si le cafe est mentionne sinon vide","pain":"Inclus si le pain est mentionne sinon vide","service_inclus":"Oui ou Non selon la facture","vaisselle_inclus":"Oui ou Non","nappage_inclus":"Oui ou Non si nappage est facture comme prestation separee cest Oui","mobilier_inclus":"Oui ou Non mobilier non compris cest Non","boissons_info":"info sur les boissons soft alcool compris ou non","commentaires":"informations utiles transport conditions particulieres allergies remarques"}`;
 
   try {
-    const response = await fetch('https://corsproxy.io/?url=https://api.anthropic.com/v1/messages', {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-calls': 'true'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }]
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 1500 }
       })
     });
 
     if (!response.ok) {
       const err = await response.json();
-      if (response.status === 401) {
-        hideStatus();
-        alert('Clé API invalide. Vérifiez votre clé dans les paramètres (⚙️).');
+      hideStatus();
+      if (response.status === 400 || response.status === 403) {
+        alert('Cle API invalide.\nVerifiez votre cle dans les parametres et assurez-vous de\ncopier la cle depuis aistudio.google.com');
         openSettings();
         return;
       }
@@ -168,7 +140,7 @@ Réponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte ava
     }
 
     const data = await response.json();
-    const raw = data.content.map(i => i.text || '').join('');
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const clean = raw.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
     fillFiche(parsed, filename);
@@ -196,7 +168,6 @@ function fillFiche(data, filename) {
   set('f_cafe', data.cafe);
   set('f_pain', data.pain);
 
-  // Boissons info → commentaires si non vide
   let commentaires = data.commentaires || '';
   if (data.boissons_info) commentaires = (commentaires ? commentaires + '\n\n' : '') + 'Boissons : ' + data.boissons_info;
   set('f_commentaires', commentaires);
@@ -208,8 +179,8 @@ function fillFiche(data, filename) {
 
   buildCocktailList(data.cocktails || []);
 
-  document.getElementById('invoiceRef').textContent = `Facture ${data.invoice_ref || filename}`;
-  document.getElementById('dateGenerated').textContent = `Fiche générée le ${new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}`;
+  document.getElementById('invoiceRef').textContent = 'Facture ' + (data.invoice_ref || filename);
+  document.getElementById('dateGenerated').textContent = 'Fiche générée le ' + new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 
   document.getElementById('uploadZone').classList.add('hidden');
   document.getElementById('fiche').classList.remove('hidden');
@@ -222,7 +193,7 @@ function set(id, value) {
 }
 
 function setLog(name, value) {
-  const normalized = value === 'oui' ? 'Oui' : value === 'non' ? 'Non' : value;
+  const normalized = (value || '').toLowerCase() === 'oui' ? 'Oui' : (value || '').toLowerCase() === 'non' ? 'Non' : value;
   const select = document.getElementById('f_' + name);
   if (select && normalized) select.value = normalized;
   updateLogStyle(name);
@@ -268,42 +239,42 @@ function downloadCSV() {
     .map(cb => cb.parentElement.textContent.trim()).join(' | ');
 
   const rows = [
-    ['FICHE CONTACT CLIENT – PRESTATION MSC'],
-    ['Référence', document.getElementById('invoiceRef').textContent],
+    ['FICHE CONTACT CLIENT - PRESTATION MSC'],
+    ['Reference', document.getElementById('invoiceRef').textContent],
     [''],
-    ['=== COORDONNÉES ==='],
+    ['=== COORDONNEES ==='],
     ['Client', val('f_client')],
     ['Date prestation', val('f_date')],
     ['Lieu', val('f_lieu')],
     ['Accueillant', val('f_accueillant')],
-    ['Téléphone', val('f_tel')],
+    ['Telephone', val('f_tel')],
     [''],
     ['=== HORAIRES ==='],
-    ['Cuisine – Arrivée', val('f_cuisine_arrivee')],
-    ['Service – Arrivée', val('f_service_arrivee')],
-    ['Invités – Arrivée', val('f_invites_arrivee')],
-    ['Cérémonie laïque', val('f_ceremonie')],
-    ['Vin d\'honneur', val('f_h_vinh')],
-    ['Entrée', val('f_h_entree')],
+    ['Cuisine - Arrivee', val('f_cuisine_arrivee')],
+    ['Service - Arrivee', val('f_service_arrivee')],
+    ['Invites - Arrivee', val('f_invites_arrivee')],
+    ['Ceremonie laique', val('f_ceremonie')],
+    ['Vin d honneur', val('f_h_vinh')],
+    ['Entree', val('f_h_entree')],
     ['Plat', val('f_h_plat')],
     ['Fromage', val('f_h_fromage')],
     ['Dessert', val('f_h_dessert')],
     [''],
     ['=== CONVIVES ==='],
-    ['Adultes – Vin d\'honneur', val('f_adultes_vinh')],
-    ['Adultes – Repas', val('f_adultes_repas')],
-    ['Adultes – Végé/Végan', val('f_adultes_vege')],
-    ['Enfants – Vin d\'honneur', val('f_enfants_vinh')],
-    ['Enfants – Repas', val('f_enfants_repas')],
+    ['Adultes - Vin d honneur', val('f_adultes_vinh')],
+    ['Adultes - Repas', val('f_adultes_repas')],
+    ['Adultes - Vege/Vegan', val('f_adultes_vege')],
+    ['Enfants - Vin d honneur', val('f_enfants_vinh')],
+    ['Enfants - Repas', val('f_enfants_repas')],
     [''],
     ['=== MENU ADULTE ==='],
-    ['Cocktail sélectionné', cocktailsChecked],
-    ['Entrée / Mise en bouche', val('f_entree')],
+    ['Cocktail selectionne', cocktailsChecked],
+    ['Entree / Mise en bouche', val('f_entree')],
     ['Le plat', val('f_plat')],
     ['Accompagnement', val('f_accompagnement')],
     ['Le fromage', val('f_fromage')],
     ['Le dessert', val('f_dessert')],
-    ['Le café', val('f_cafe')],
+    ['Le cafe', val('f_cafe')],
     ['Le pain', val('f_pain')],
     [''],
     ['=== LOGISTIQUE ==='],
@@ -313,7 +284,7 @@ function downloadCSV() {
     ['Nappage', val('f_nappage')],
     [''],
     ['=== MENU ENFANT ==='],
-    ['Entrée', val('f_enf_entree')],
+    ['Entree', val('f_enf_entree')],
     ['Plat', val('f_enf_plat')],
     ['Dessert', val('f_enf_dessert')],
     [''],
@@ -321,14 +292,14 @@ function downloadCSV() {
     [val('f_commentaires')],
   ];
 
-  const csv = rows.map(r => r.map(c => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  const csv = rows.map(r => r.map(c => '"' + (c || '').replace(/"/g, '""') + '"').join(',')).join('\n');
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   const client = val('f_client').replace(/\s+/g, '_').slice(0, 30);
   const date = val('f_date').replace(/\//g, '-').slice(0, 10);
-  a.download = `Fiche_Prestation_${client || 'MSC'}_${date || new Date().toLocaleDateString('fr-FR')}.csv`;
+  a.download = 'Fiche_Prestation_' + (client || 'MSC') + '_' + (date || new Date().toLocaleDateString('fr-FR')) + '.csv';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
