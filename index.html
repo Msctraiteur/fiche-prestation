@@ -44,11 +44,14 @@
 
   <!-- UPLOAD ZONE -->
   <div class="upload-zone" id="uploadZone">
-    <input type="file" id="fileInput" accept=".pdf" />
+    <input type="file" id="fileInput" accept="application/pdf,.pdf" style="position:absolute;width:1px;height:1px;opacity:0;" />
     <div class="upload-icon">📄</div>
-    <h2>Déposer une facture PDF</h2>
-    <p>Appuyez pour sélectionner · Glissez-déposez sur PC</p>
-    <div class="upload-formats">PDF uniquement</div>
+    <h2>Sélectionner une facture PDF</h2>
+    <p>Appuyez sur le bouton ci-dessous pour choisir votre fichier</p>
+    <button onclick="document.getElementById('fileInput').click()" style="margin-top:16px;background:#1B3A6B;color:white;border:none;padding:14px 28px;border-radius:10px;font-size:16px;font-weight:500;cursor:pointer;font-family:inherit;">
+      📂 Choisir un fichier PDF
+    </button>
+    <div class="upload-formats" style="margin-top:12px;">PDF uniquement</div>
   </div>
 
   <!-- STATUS -->
