@@ -1,319 +1,440 @@
-// ── PDF.js setup ──
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+// Configuration
+const CONFIG = {
+    API_PROVIDER: 'openai',
+    OPENAI_MODEL: 'gpt-4o-mini',  // Modèle économique et rapide
+    API_KEY_STORAGE: 'fiche_prestation_api_key',
+    API_URL: 'https://api.openai.com/v1/chat/completions'
+};
 
-// ── COCKTAIL OPTIONS ──
-const COCKTAILS = [
-  "Navette moelleuse au saumon, fromage frais citronné",
-  "Risotto crémeux aux crevettes",
-  "Tataki de thon, sésame & sauce teriyaki",
-  "Croque doré au jambon et fromage",
-  "Toast de Serrano, comté affiné & éclats de noisette",
-  "Wrap à l'effiloché de porcelet confit",
-  "Velouté de saison, servi chaud",
-  "Gaufre de pomme de terre, crème forestière au parmesan"
-];
+// Variables globales
+let apiKey = localStorage.getItem(CONFIG.API_KEY_STORAGE) || '';
+let extractedText = '';
 
-// ── API KEY MANAGEMENT ──
-function getApiKey() { return localStorage.getItem('msc_openai_key') || ''; }
-function saveApiKey() {
-  const key = document.getElementById('apiKeyInput').value.trim();
-  if (!key.startsWith("sk-")) {
-    alert('Clé API invalide.\nVérifiez sur platform.openai.com');
-    return;
-  }
-  localStorage.setItem('msc_openai_key', key);
-  document.getElementById('apiModal').classList.add('hidden');
-}
-function openSettings() {
-  document.getElementById('apiKeyInput').value = getApiKey();
-  document.getElementById('apiModal').classList.remove('hidden');
-}
-
-// ── INIT ──
-window.addEventListener('load', () => {
-  if (!getApiKey()) {
-    document.getElementById('apiModal').classList.remove('hidden');
-  }
-  buildCocktailList();
+// Initialisation
+document.addEventListener('DOMContentLoaded', () => {
+    initializeUI();
+    checkApiKey();
 });
 
-// ── COCKTAIL LIST ──
-function buildCocktailList(selected = []) {
-  const list = document.getElementById('cocktailList');
-  list.innerHTML = '';
-  COCKTAILS.forEach((c, i) => {
-    const isSelected = selected.some(s => s && c.toLowerCase().includes(s.toLowerCase().slice(0, 12)));
-    const label = document.createElement('label');
-    label.className = 'cocktail-item' + (isSelected ? ' selected' : '');
-    label.innerHTML = `<input type="checkbox" ${isSelected ? 'checked' : ''}>  ${i + 1}. ${c}`;
-    label.querySelector('input').addEventListener('change', function () {
-      label.classList.toggle('selected', this.checked);
+function initializeUI() {
+    // Zone de drop
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
     });
-    list.appendChild(label);
-  });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFile(files[0]);
+        }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFile(e.target.files[0]);
+        }
+    });
+
+    // Boutons
+    document.getElementById('btn-imprimer').addEventListener('click', imprimerFiche);
+    document.getElementById('btn-telecharger').addEventListener('click', telechargerCSV);
+    document.getElementById('btn-nouveau').addEventListener('click', nouveauDocument);
+
+    // Paramètres
+    document.getElementById('btn-settings').addEventListener('click', openSettings);
+    document.getElementById('btn-close-settings').addEventListener('click', closeSettings);
+    document.getElementById('btn-save-key').addEventListener('click', saveApiKey);
+    document.getElementById('btn-clear-key').addEventListener('click', clearApiKey);
+
+    // Checkbox "Tout cocher" pour cocktail
+    document.getElementById('cocktail-tout').addEventListener('change', function() {
+        const checkboxes = document.querySelectorAll('.cocktail-item input[type="checkbox"]');
+        checkboxes.forEach(cb => cb.checked = this.checked);
+    });
 }
 
-// ── UPLOAD ──
-const fileInput = document.getElementById('fileInput');
-const uploadZone = document.getElementById('uploadZone');
-
-uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
-uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
-uploadZone.addEventListener('drop', e => {
-  e.preventDefault();
-  uploadZone.classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file && (file.type === 'application/pdf' || file.name.endsWith('.pdf'))) processPDF(file);
-  else alert('Veuillez sélectionner un fichier PDF.');
-});
-
-// Compatible Android Chrome
-fileInput.addEventListener('change', e => {
-  const file = e.target.files && e.target.files[0];
-  if (file) {
-    processPDF(file);
-  }
-});
-
-function showStatus(text) {
-  const bar = document.getElementById('statusBar');
-  bar.classList.remove('hidden');
-  document.getElementById('statusText').textContent = text;
-}
-function hideStatus() {
-  document.getElementById('statusBar').classList.add('hidden');
-}
-
-// ── PDF PROCESSING ──
-async function processPDF(file) {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    document.getElementById('apiModal').classList.remove('hidden');
-    return;
-  }
-  showStatus('Lecture du PDF…');
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    let fullText = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      fullText += content.items.map(item => item.str).join(' ') + '\n';
+function checkApiKey() {
+    apiKey = localStorage.getItem(CONFIG.API_KEY_STORAGE);
+    if (!apiKey) {
+        openSettings();
+    } else {
+        document.getElementById('api-status').textContent = '✓ Clé API configurée';
+        document.getElementById('api-status').style.color = '#4CAF50';
     }
-    // Limiter le texte aux 3000 premiers caractères pour éviter les limites de quota
-    const textLimite = fullText.slice(0, 3000);
-    showStatus('Analyse IA de la facture en cours…');
-    await analyseAvecGemini(textLimite, file.name, apiKey);
-  } catch (err) {
-    hideStatus();
-    alert('Erreur lors de la lecture du PDF :\n' + err.message);
-  }
 }
 
-// ── ANTHROPIC API ──
-async function analyseAvecGemini(text, filename, apiKey) {
-  const prompt = `Tu es un assistant specialise dans l'analyse de factures du traiteur Marc Sainte-Claire. Analyse ce texte de facture et extrais toutes les informations disponibles.
+function openSettings() {
+    document.getElementById('settings-modal').style.display = 'block';
+    const storedKey = localStorage.getItem(CONFIG.API_KEY_STORAGE);
+    if (storedKey) {
+        document.getElementById('api-key-input').value = storedKey;
+    }
+}
 
-TEXTE DE LA FACTURE :
----
-${text}
----
+function closeSettings() {
+    document.getElementById('settings-modal').style.display = 'none';
+}
 
-Reponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte avant ou apres) :
+function saveApiKey() {
+    const key = document.getElementById('api-key-input').value.trim();
+    if (key && key.startsWith('sk-')) {
+        localStorage.setItem(CONFIG.API_KEY_STORAGE, key);
+        apiKey = key;
+        document.getElementById('api-status').textContent = '✓ Clé API configurée';
+        document.getElementById('api-status').style.color = '#4CAF50';
+        closeSettings();
+        alert('Clé API OpenAI enregistrée avec succès !');
+    } else {
+        alert('Veuillez entrer une clé API OpenAI valide (commençant par sk-)');
+    }
+}
 
-{"invoice_ref":"numero de facture","client":"nom complet du client ou organisation","date_prestation":"date de levenement pas la date de facture","lieu":"lieu ville de la prestation","adultes_repas":"nombre de convives adultes pour le repas","adultes_vinh":"nombre adultes vin dhonneur si different sinon meme valeur","enfants_repas":"nombre enfants si mentionne sinon vide","cocktails":["liste des noms de cocktails mentionnes ou tableau vide si non precise"],"entree":"entree du diner","plat":"plat principal","accompagnement":"accompagnement du plat","fromage":"fromage si mentionne","dessert":"dessert","cafe":"Inclus si le cafe est mentionne sinon vide","pain":"Inclus si le pain est mentionne sinon vide","service_inclus":"Oui ou Non selon la facture","vaisselle_inclus":"Oui ou Non","nappage_inclus":"Oui ou Non si nappage est facture comme prestation separee cest Oui","mobilier_inclus":"Oui ou Non mobilier non compris cest Non","boissons_info":"info sur les boissons soft alcool compris ou non","commentaires":"informations utiles transport conditions particulieres allergies remarques"}`;
+function clearApiKey() {
+    localStorage.removeItem(CONFIG.API_KEY_STORAGE);
+    apiKey = '';
+    document.getElementById('api-key-input').value = '';
+    document.getElementById('api-status').textContent = '✗ Aucune clé API';
+    document.getElementById('api-status').style.color = '#f44336';
+    alert('Clé API supprimée');
+}
 
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 1500 }
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.json();
-      hideStatus();
-      if (response.status === 400 || response.status === 403) {
-        alert('Clé API invalide.\nVérifiez votre clé dans les paramètres (⚙️).\nObtenez votre clé gratuite sur platform.openai.com');
+async function handleFile(file) {
+    if (!apiKey) {
+        alert('Veuillez d\'abord configurer votre clé API OpenAI (cliquez sur ⚙️)');
         openSettings();
         return;
-      }
-      throw new Error(err.error?.message || `Erreur API (${response.status})`);
     }
 
-    const data = await response.json();
-    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const clean = raw.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-    fillFiche(parsed, filename);
-    hideStatus();
+    if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
+        alert('Veuillez sélectionner un fichier PDF');
+        return;
+    }
 
-  } catch (err) {
-    hideStatus();
-    alert('Erreur lors de l\'analyse :\n' + err.message);
-  }
+    showLoading('Lecture du PDF en cours...');
+
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+
+        let fullText = '';
+        const numPages = Math.min(pdf.numPages, 3); // Limiter à 3 pages pour économiser les tokens
+
+        for (let i = 1; i <= numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            fullText += pageText + '\n';
+        }
+
+        extractedText = fullText.substring(0, 8000); // Limiter la taille
+
+        showLoading('Analyse IA de la facture en cours...');
+        await analyzeWithOpenAI(extractedText);
+
+    } catch (error) {
+        console.error('Erreur:', error);
+        hideLoading();
+        alert('Erreur lors de la lecture du PDF: ' + error.message);
+    }
 }
 
-// ── FILL FICHE ──
-function fillFiche(data, filename) {
-  set('f_client', data.client);
-  set('f_date', data.date_prestation);
-  set('f_lieu', data.lieu);
-  set('f_adultes_repas', data.adultes_repas);
-  set('f_adultes_vinh', data.adultes_vinh || data.adultes_repas);
-  set('f_enfants_repas', data.enfants_repas);
-  set('f_entree', data.entree);
-  set('f_plat', data.plat);
-  set('f_accompagnement', data.accompagnement);
-  set('f_fromage', data.fromage);
-  set('f_dessert', data.dessert);
-  set('f_cafe', data.cafe);
-  set('f_pain', data.pain);
+async function analyzeWithOpenAI(text) {
+    try {
+        const prompt = `Tu es un assistant spécialisé dans l\'analyse de factures de traiteur. 
 
-  let commentaires = data.commentaires || '';
-  if (data.boissons_info) commentaires = (commentaires ? commentaires + '\n\n' : '') + 'Boissons : ' + data.boissons_info;
-  set('f_commentaires', commentaires);
+Analyse ce texte de facture et extrais les informations suivantes au format JSON strict:
 
-  setLog('service', data.service_inclus);
-  setLog('vaisselle', data.vaisselle_inclus);
-  setLog('nappage', data.nappage_inclus);
-  setLog('mobilier', data.mobilier_inclus);
-
-  buildCocktailList(data.cocktails || []);
-
-  document.getElementById('invoiceRef').textContent = 'Facture ' + (data.invoice_ref || filename);
-  document.getElementById('dateGenerated').textContent = 'Fiche générée le ' + new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
-
-  document.getElementById('uploadZone').classList.add('hidden');
-  document.getElementById('fiche').classList.remove('hidden');
-  document.getElementById('fiche').scrollIntoView({ behavior: 'smooth', block: 'start' });
+{
+  "client": {
+    "nom": "Nom du client",
+    "prenom": "Prénom du client",
+    "telephone": "Téléphone",
+    "email": "Email"
+  },
+  "prestation": {
+    "date": "Date de la prestation (JJ/MM/AAAA)",
+    "heure": "Heure de la prestation",
+    "lieu": "Lieu/adresse de la prestation",
+    "type": "Type d\'événement",
+    "nombre_convives": "Nombre de convives (nombre)",
+    "nombre_adultes": "Nombre d\'adultes",
+    "nombre_enfants": "Nombre d\'enfants"
+  },
+  "menu": {
+    "cocktail": ["liste des pièces cocktail sélectionnées"],
+    "entree": "Description de l\'entrée",
+    "plat": "Description du plat principal",
+    "fromage": "Description du fromage ou non",
+    "dessert": "Description du dessert",
+    "cafe": "Oui ou Non"
+  },
+  "logistique": {
+    "service": true/false,
+    "vaisselle": true/false,
+    "nappage": true/false,
+    "mobilier": true/false,
+    "boissons": "Description des boissons"
+  },
+  "commentaires": "Commentaires importants, restrictions alimentaires, etc."
 }
 
-function set(id, value) {
-  const el = document.getElementById(id);
-  if (el && value !== undefined && value !== null) el.value = value;
+Texte de la facture à analyser:
+${text}
+
+Réponds UNIQUEMENT avec le JSON valide, sans texte avant ou après.`;
+
+        const response = await fetch(CONFIG.API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: CONFIG.OPENAI_MODEL,
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'Tu es un assistant qui analyse des factures de traiteur et retourne uniquement des données JSON structurées.'
+                    },
+                    {
+                        role: 'user',
+                        content: prompt
+                    }
+                ],
+                temperature: 0.1,
+                max_tokens: 2000
+            })
+        });
+
+        // DEBUG: Afficher le statut de la réponse
+        console.log('Status:', response.status);
+        console.log('Status Text:', response.statusText);
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Error data:', errorData);
+
+            if (response.status === 401) {
+                throw new Error('Clé API invalide ou expirée. Vérifiez votre clé sur platform.openai.com');
+            } else if (response.status === 429) {
+                throw new Error('Quota dépassé. Vérifiez votre solde sur platform.openai.com');
+            } else if (response.status === 400) {
+                throw new Error(`Erreur de requête: ${errorData.error?.message || 'Format incorrect'}`);
+            } else {
+                throw new Error(`Erreur API OpenAI: ${response.status} - ${errorData.error?.message || response.statusText}`);
+            }
+        }
+
+        const data = await response.json();
+
+        // DEBUG: Afficher la réponse brute
+        console.log('OpenAI response:', data);
+
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            throw new Error('Réponse OpenAI invalide: structure inattendue');
+        }
+
+        const content = data.choices[0].message.content;
+
+        // Extraire le JSON de la réponse
+        let jsonStr = content;
+
+        // Si le JSON est dans un bloc de code markdown
+        const jsonMatch = content.match(/```json\s*([\s\S]*?)```/);
+        if (jsonMatch) {
+            jsonStr = jsonMatch[1];
+        } else {
+            // Chercher le début et fin du JSON
+            const startIdx = content.indexOf('{');
+            const endIdx = content.lastIndexOf('}');
+            if (startIdx !== -1 && endIdx !== -1) {
+                jsonStr = content.substring(startIdx, endIdx + 1);
+            }
+        }
+
+        // DEBUG: Afficher le JSON extrait
+        console.log('JSON extrait:', jsonStr);
+
+        const extractedData = JSON.parse(jsonStr);
+        fillForm(extractedData);
+        hideLoading();
+
+    } catch (error) {
+        console.error('Erreur OpenAI:', error);
+        hideLoading();
+
+        // Message d'erreur détaillé
+        let errorMsg = error.message;
+        if (error.message.includes('Clé API invalide')) {
+            errorMsg += '\n\nVotre clé commence par: ' + apiKey.substring(0, 10) + '...\nVérifiez sur platform.openai.com/api-keys';
+        }
+
+        alert('Erreur: ' + errorMsg);
+    }
 }
 
-function setLog(name, value) {
-  const normalized = (value || '').toLowerCase() === 'oui' ? 'Oui' : (value || '').toLowerCase() === 'non' ? 'Non' : value;
-  const select = document.getElementById('f_' + name);
-  if (select && normalized) select.value = normalized;
-  updateLogStyle(name);
+function fillForm(data) {
+    // Client
+    if (data.client) {
+        document.getElementById('client-nom').value = data.client.nom || '';
+        document.getElementById('client-prenom').value = data.client.prenom || '';
+        document.getElementById('client-tel').value = data.client.telephone || '';
+        document.getElementById('client-email').value = data.client.email || '';
+    }
+
+    // Prestation
+    if (data.prestation) {
+        document.getElementById('event-date').value = formatDateForInput(data.prestation.date);
+        document.getElementById('event-heure').value = data.prestation.heure || '';
+        document.getElementById('event-lieu').value = data.prestation.lieu || '';
+        document.getElementById('event-type').value = data.prestation.type || '';
+        document.getElementById('nb-convives').value = data.prestation.nombre_convives || '';
+        document.getElementById('nb-adultes').value = data.prestation.nombre_adultes || '';
+        document.getElementById('nb-enfants').value = data.prestation.nombre_enfants || '';
+    }
+
+    // Menu - Cocktail
+    if (data.menu && data.menu.cocktail) {
+        const cocktailItems = data.menu.cocktail;
+        const checkboxes = document.querySelectorAll('.cocktail-item input[type="checkbox"]');
+
+        checkboxes.forEach(cb => {
+            const itemName = cb.getAttribute('data-item');
+            cb.checked = cocktailItems.some(item => 
+                item.toLowerCase().includes(itemName.toLowerCase()) || 
+                itemName.toLowerCase().includes(item.toLowerCase())
+            );
+        });
+    }
+
+    // Menu - Repas
+    if (data.menu) {
+        document.getElementById('menu-entree').value = data.menu.entree || '';
+        document.getElementById('menu-plat').value = data.menu.plat || '';
+        document.getElementById('menu-fromage').value = data.menu.fromage || '';
+        document.getElementById('menu-dessert').value = data.menu.dessert || '';
+        document.getElementById('menu-cafe').value = data.menu.cafe || 'Non';
+    }
+
+    // Logistique
+    if (data.logistique) {
+        document.getElementById('log-service').checked = data.logistique.service || false;
+        document.getElementById('log-vaisselle').checked = data.logistique.vaisselle || false;
+        document.getElementById('log-nappage').checked = data.logistique.nappage || false;
+        document.getElementById('log-mobilier').checked = data.logistique.mobilier || false;
+        document.getElementById('log-boissons').value = data.logistique.boissons || '';
+    }
+
+    // Commentaires
+    if (data.commentaires) {
+        document.getElementById('commentaires').value = data.commentaires;
+    }
+
+    // Afficher un message de succès
+    showNotification('Fiche prestation remplie avec succès !');
 }
 
-function updateLogStyle(name) {
-  const select = document.getElementById('f_' + name);
-  const wrap = document.getElementById('wrap_' + name);
-  if (!select || !wrap) return;
-  wrap.classList.remove('yes', 'no');
-  if (select.value === 'Oui') wrap.classList.add('yes');
-  else if (select.value === 'Non') wrap.classList.add('no');
+function formatDateForInput(dateStr) {
+    if (!dateStr) return '';
+    // Convertir JJ/MM/AAAA en AAAA-MM-JJ pour l'input date
+    const match = dateStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (match) {
+        return `${match[3]}-${match[2]}-${match[1]}`;
+    }
+    return dateStr;
 }
 
-// ── RESET ──
-function resetAll() {
-  document.getElementById('fiche').classList.add('hidden');
-  document.getElementById('uploadZone').classList.remove('hidden');
-  document.getElementById('fileInput').value = '';
-  buildCocktailList();
-  ['f_client','f_date','f_lieu','f_accueillant','f_tel',
-   'f_cuisine_arrivee','f_service_arrivee','f_invites_arrivee','f_ceremonie',
-   'f_h_vinh','f_h_entree','f_h_plat','f_h_fromage','f_h_dessert',
-   'f_adultes_vinh','f_adultes_repas','f_adultes_vege',
-   'f_enfants_vinh','f_enfants_repas','f_enfants_vege',
-   'f_b_vinh','f_b_repas','f_b_dessert',
-   'f_ateliers','f_entree','f_plat','f_accompagnement',
-   'f_fromage','f_dessert','f_cafe','f_pain',
-   'f_enf_entree','f_enf_plat','f_enf_dessert',
-   'f_nuit','f_lendemain','f_commentaires'
-  ].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  ['service','vaisselle','nappage','mobilier'].forEach(name => {
-    const s = document.getElementById('f_' + name);
-    if (s) s.value = '';
-    updateLogStyle(name);
-  });
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+function showLoading(message) {
+    document.getElementById('loading-text').textContent = message;
+    document.getElementById('loading').style.display = 'flex';
 }
 
-// ── CSV EXPORT ──
-function downloadCSV() {
-  const cocktailsChecked = [...document.querySelectorAll('#cocktailList input:checked')]
-    .map(cb => cb.parentElement.textContent.trim()).join(' | ');
-
-  const rows = [
-    ['FICHE CONTACT CLIENT - PRESTATION MSC'],
-    ['Reference', document.getElementById('invoiceRef').textContent],
-    [''],
-    ['=== COORDONNEES ==='],
-    ['Client', val('f_client')],
-    ['Date prestation', val('f_date')],
-    ['Lieu', val('f_lieu')],
-    ['Accueillant', val('f_accueillant')],
-    ['Telephone', val('f_tel')],
-    [''],
-    ['=== HORAIRES ==='],
-    ['Cuisine - Arrivee', val('f_cuisine_arrivee')],
-    ['Service - Arrivee', val('f_service_arrivee')],
-    ['Invites - Arrivee', val('f_invites_arrivee')],
-    ['Ceremonie laique', val('f_ceremonie')],
-    ['Vin d honneur', val('f_h_vinh')],
-    ['Entree', val('f_h_entree')],
-    ['Plat', val('f_h_plat')],
-    ['Fromage', val('f_h_fromage')],
-    ['Dessert', val('f_h_dessert')],
-    [''],
-    ['=== CONVIVES ==='],
-    ['Adultes - Vin d honneur', val('f_adultes_vinh')],
-    ['Adultes - Repas', val('f_adultes_repas')],
-    ['Adultes - Vege/Vegan', val('f_adultes_vege')],
-    ['Enfants - Vin d honneur', val('f_enfants_vinh')],
-    ['Enfants - Repas', val('f_enfants_repas')],
-    [''],
-    ['=== MENU ADULTE ==='],
-    ['Cocktail selectionne', cocktailsChecked],
-    ['Entree / Mise en bouche', val('f_entree')],
-    ['Le plat', val('f_plat')],
-    ['Accompagnement', val('f_accompagnement')],
-    ['Le fromage', val('f_fromage')],
-    ['Le dessert', val('f_dessert')],
-    ['Le cafe', val('f_cafe')],
-    ['Le pain', val('f_pain')],
-    [''],
-    ['=== LOGISTIQUE ==='],
-    ['Service', val('f_service')],
-    ['Mobilier', val('f_mobilier')],
-    ['Vaisselle', val('f_vaisselle')],
-    ['Nappage', val('f_nappage')],
-    [''],
-    ['=== MENU ENFANT ==='],
-    ['Entree', val('f_enf_entree')],
-    ['Plat', val('f_enf_plat')],
-    ['Dessert', val('f_enf_dessert')],
-    [''],
-    ['=== COMMENTAIRES ==='],
-    [val('f_commentaires')],
-  ];
-
-  const csv = rows.map(r => r.map(c => '"' + (c || '').replace(/"/g, '""') + '"').join(',')).join('\n');
-  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const client = val('f_client').replace(/\s+/g, '_').slice(0, 30);
-  const date = val('f_date').replace(/\//g, '-').slice(0, 10);
-  a.download = 'Fiche_Prestation_' + (client || 'MSC') + '_' + (date || new Date().toLocaleDateString('fr-FR')) + '.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+function hideLoading() {
+    document.getElementById('loading').style.display = 'none';
 }
 
-function val(id) {
-  const el = document.getElementById(id);
-  return el ? el.value : '';
+function showNotification(message) {
+    const notif = document.getElementById('notification');
+    notif.textContent = message;
+    notif.style.display = 'block';
+    setTimeout(() => {
+        notif.style.display = 'none';
+    }, 3000);
+}
+
+function imprimerFiche() {
+    window.print();
+}
+
+function telechargerCSV() {
+    const formData = collectFormData();
+    let csv = 'Champ,Valeur\n';
+
+    for (const [key, value] of Object.entries(formData)) {
+        csv += `"${key}","${value}"\n`;
+    }
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `fiche_prestation_${new Date().toISOString().slice(0,10)}.csv`;
+    link.click();
+}
+
+function collectFormData() {
+    const cocktailItems = [];
+    document.querySelectorAll('.cocktail-item input[type="checkbox"]:checked').forEach(cb => {
+        cocktailItems.push(cb.getAttribute('data-item'));
+    });
+
+    return {
+        'Nom Client': document.getElementById('client-nom').value,
+        'Prénom Client': document.getElementById('client-prenom').value,
+        'Téléphone': document.getElementById('client-tel').value,
+        'Email': document.getElementById('client-email').value,
+        'Date Événement': document.getElementById('event-date').value,
+        'Heure': document.getElementById('event-heure').value,
+        'Lieu': document.getElementById('event-lieu').value,
+        'Type Événement': document.getElementById('event-type').value,
+        'Nombre Convives': document.getElementById('nb-convives').value,
+        'Nombre Adultes': document.getElementById('nb-adultes').value,
+        'Nombre Enfants': document.getElementById('nb-enfants').value,
+        'Pièces Cocktail': cocktailItems.join(', '),
+        'Entrée': document.getElementById('menu-entree').value,
+        'Plat': document.getElementById('menu-plat').value,
+        'Fromage': document.getElementById('menu-fromage').value,
+        'Dessert': document.getElementById('menu-dessert').value,
+        'Café': document.getElementById('menu-cafe').value,
+        'Service': document.getElementById('log-service').checked ? 'Oui' : 'Non',
+        'Vaisselle': document.getElementById('log-vaisselle').checked ? 'Oui' : 'Non',
+        'Nappage': document.getElementById('log-nappage').checked ? 'Oui' : 'Non',
+        'Mobilier': document.getElementById('log-mobilier').checked ? 'Oui' : 'Non',
+        'Boissons': document.getElementById('log-boissons').value,
+        'Commentaires': document.getElementById('commentaires').value
+    };
+}
+
+function nouveauDocument() {
+    if (confirm('Voulez-vous vraiment effacer toutes les données et créer une nouvelle fiche ?')) {
+        document.querySelectorAll('input, textarea, select').forEach(field => {
+            if (field.type === 'checkbox') {
+                field.checked = false;
+            } else {
+                field.value = '';
+            }
+        });
+        document.getElementById('menu-cafe').value = 'Non';
+    }
 }
