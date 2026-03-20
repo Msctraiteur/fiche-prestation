@@ -14,14 +14,14 @@ const COCKTAILS = [
 ];
 
 // ── API KEY MANAGEMENT ──
-function getApiKey() { return localStorage.getItem('msc_claude_key') || ''; }
+function getApiKey() { return localStorage.getItem('msc_openai_key') || ''; }
 function saveApiKey() {
   const key = document.getElementById('apiKeyInput').value.trim();
-  if (!key.startsWith("sk-ant-")) {
-    alert('Clé API invalide.\nVérifiez sur console.anthropic.com');
+  if (!key.startsWith("sk-")) {
+    alert('Clé API invalide.\nVérifiez sur platform.openai.com');
     return;
   }
-  localStorage.setItem('msc_claude_key', key);
+  localStorage.setItem('msc_openai_key', key);
   document.getElementById('apiModal').classList.add('hidden');
 }
 function openSettings() {
@@ -139,7 +139,7 @@ Reponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte avan
       const err = await response.json();
       hideStatus();
       if (response.status === 400 || response.status === 403) {
-        alert('Clé API invalide.\nVérifiez votre clé dans les paramètres (⚙️).\nObtenez votre clé gratuite sur console.anthropic.com');
+        alert('Clé API invalide.\nVérifiez votre clé dans les paramètres (⚙️).\nObtenez votre clé gratuite sur platform.openai.com');
         openSettings();
         return;
       }
