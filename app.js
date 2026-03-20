@@ -1,241 +1,319 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>MSC – Fiche Prestation</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1B3A6B">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="MSC Fiche">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
+// ── PDF.js setup ──
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-<!-- API KEY MODAL -->
-<div id="apiModal" class="modal-overlay hidden">
-  <div class="modal">
-    <div class="modal-logo">MSC</div>
-    <h2>Clé API Google Gemini</h2>
-    <p>Pour analyser vos factures, entrez votre clé API Google Gemini.<br>Elle sera stockée uniquement sur cet appareil.</p>
-    <div class="field">
-      <label>Clé API Google AI Studio</label>
-      <input type="password" id="apiKeyInput" placeholder="Votre clé Google AI Studio" autocomplete="off" />
-    </div>
-    <p class="modal-hint">📍 Trouvez votre clé sur <strong>aistudio.google.com</strong> → API Keys</p>
-    <button class="btn btn-primary btn-full" onclick="saveApiKey()">Enregistrer et continuer</button>
-  </div>
-</div>
+// ── COCKTAIL OPTIONS ──
+const COCKTAILS = [
+  "Navette moelleuse au saumon, fromage frais citronné",
+  "Risotto crémeux aux crevettes",
+  "Tataki de thon, sésame & sauce teriyaki",
+  "Croque doré au jambon et fromage",
+  "Toast de Serrano, comté affiné & éclats de noisette",
+  "Wrap à l'effiloché de porcelet confit",
+  "Velouté de saison, servi chaud",
+  "Gaufre de pomme de terre, crème forestière au parmesan"
+];
 
-<header>
-  <div class="logo-badge">MSC</div>
-  <div class="header-text">
-    <h1>Marc Sainte-Claire</h1>
-    <p>Fiche Prestation — Analyse de facture</p>
-  </div>
-  <button class="btn-settings" onclick="openSettings()" title="Paramètres">⚙️</button>
-</header>
+// ── API KEY MANAGEMENT ──
+function getApiKey() { return localStorage.getItem('msc_claude_key') || ''; }
+function saveApiKey() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key.startsWith("sk-ant-")) {
+    alert('Clé API invalide.\nVérifiez sur console.anthropic.com');
+    return;
+  }
+  localStorage.setItem('msc_claude_key', key);
+  document.getElementById('apiModal').classList.add('hidden');
+}
+function openSettings() {
+  document.getElementById('apiKeyInput').value = getApiKey();
+  document.getElementById('apiModal').classList.remove('hidden');
+}
 
-<div class="container">
+// ── INIT ──
+window.addEventListener('load', () => {
+  if (!getApiKey()) {
+    document.getElementById('apiModal').classList.remove('hidden');
+  }
+  buildCocktailList();
+});
 
-  <!-- UPLOAD ZONE -->
-  <div class="upload-zone" id="uploadZone">
-    <input type="file" id="fileInput" accept="application/pdf,.pdf" style="position:absolute;width:1px;height:1px;opacity:0;" />
-    <div class="upload-icon">📄</div>
-    <h2>Sélectionner une facture PDF</h2>
-    <p>Appuyez sur le bouton ci-dessous pour choisir votre fichier</p>
-    <button onclick="document.getElementById('fileInput').click()" style="margin-top:16px;background:#1B3A6B;color:white;border:none;padding:14px 28px;border-radius:10px;font-size:16px;font-weight:500;cursor:pointer;font-family:inherit;">
-      📂 Choisir un fichier PDF
-    </button>
-    <div class="upload-formats" style="margin-top:12px;">PDF uniquement</div>
-  </div>
+// ── COCKTAIL LIST ──
+function buildCocktailList(selected = []) {
+  const list = document.getElementById('cocktailList');
+  list.innerHTML = '';
+  COCKTAILS.forEach((c, i) => {
+    const isSelected = selected.some(s => s && c.toLowerCase().includes(s.toLowerCase().slice(0, 12)));
+    const label = document.createElement('label');
+    label.className = 'cocktail-item' + (isSelected ? ' selected' : '');
+    label.innerHTML = `<input type="checkbox" ${isSelected ? 'checked' : ''}>  ${i + 1}. ${c}`;
+    label.querySelector('input').addEventListener('change', function () {
+      label.classList.toggle('selected', this.checked);
+    });
+    list.appendChild(label);
+  });
+}
 
-  <!-- STATUS -->
-  <div class="status-bar hidden" id="statusBar">
-    <div class="spinner"></div>
-    <span id="statusText">Analyse en cours…</span>
-  </div>
+// ── UPLOAD ──
+const fileInput = document.getElementById('fileInput');
+const uploadZone = document.getElementById('uploadZone');
 
-  <!-- FICHE -->
-  <div class="fiche hidden" id="fiche">
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && (file.type === 'application/pdf' || file.name.endsWith('.pdf'))) processPDF(file);
+  else alert('Veuillez sélectionner un fichier PDF.');
+});
 
-    <div class="fiche-header">
-      <div>
-        <h2>Fiche Contact Client</h2>
-        <div class="invoice-ref" id="invoiceRef">–</div>
-      </div>
-      <div class="fiche-date" id="dateGenerated"></div>
-    </div>
+// Compatible Android Chrome
+fileInput.addEventListener('change', e => {
+  const file = e.target.files && e.target.files[0];
+  if (file) {
+    processPDF(file);
+  }
+});
 
-    <div class="fiche-body">
+function showStatus(text) {
+  const bar = document.getElementById('statusBar');
+  bar.classList.remove('hidden');
+  document.getElementById('statusText').textContent = text;
+}
+function hideStatus() {
+  document.getElementById('statusBar').classList.add('hidden');
+}
 
-      <!-- COORDONNÉES -->
-      <div class="section">
-        <div class="section-title">📋 Coordonnées</div>
-        <div class="section-content">
-          <div class="field-grid">
-            <div class="field span-2"><label>Nom / Organisation client</label><input type="text" id="f_client" /></div>
-            <div class="field"><label>Date de la prestation</label><input type="text" id="f_date" /></div>
-            <div class="field span-2"><label>Adresse – Lieu de la prestation</label><input type="text" id="f_lieu" /></div>
-            <div class="field"><label>Nom / Prénom accueillant</label><input type="text" id="f_accueillant" /></div>
-            <div class="field"><label>Téléphone accueillant</label><input type="tel" id="f_tel" /></div>
-          </div>
-        </div>
-      </div>
+// ── PDF PROCESSING ──
+async function processPDF(file) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    document.getElementById('apiModal').classList.remove('hidden');
+    return;
+  }
+  showStatus('Lecture du PDF…');
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      fullText += content.items.map(item => item.str).join(' ') + '\n';
+    }
+    // Limiter le texte aux 3000 premiers caractères pour éviter les limites de quota
+    const textLimite = fullText.slice(0, 3000);
+    showStatus('Analyse IA de la facture en cours…');
+    await analyseAvecGemini(textLimite, file.name, apiKey);
+  } catch (err) {
+    hideStatus();
+    alert('Erreur lors de la lecture du PDF :\n' + err.message);
+  }
+}
 
-      <!-- HORAIRES -->
-      <div class="section">
-        <div class="section-title">🕐 Horaires</div>
-        <div class="section-content">
-          <div class="field-grid">
-            <div class="field"><label>Cuisine – Arrivée</label><input type="text" id="f_cuisine_arrivee" /></div>
-            <div class="field"><label>Service – Arrivée</label><input type="text" id="f_service_arrivee" /></div>
-            <div class="field"><label>Invités – Arrivée</label><input type="text" id="f_invites_arrivee" /></div>
-            <div class="field"><label>Cérémonie laïque</label><input type="text" id="f_ceremonie" /></div>
-            <div class="field"><label>Vin d'honneur</label><input type="text" id="f_h_vinh" /></div>
-            <div class="field"><label>Entrée</label><input type="text" id="f_h_entree" /></div>
-            <div class="field"><label>Plat</label><input type="text" id="f_h_plat" /></div>
-            <div class="field"><label>Fromage</label><input type="text" id="f_h_fromage" /></div>
-            <div class="field"><label>Dessert</label><input type="text" id="f_h_dessert" /></div>
-          </div>
-        </div>
-      </div>
+// ── ANTHROPIC API ──
+async function analyseAvecGemini(text, filename, apiKey) {
+  const prompt = `Tu es un assistant specialise dans l'analyse de factures du traiteur Marc Sainte-Claire. Analyse ce texte de facture et extrais toutes les informations disponibles.
 
-      <!-- CONVIVES -->
-      <div class="section">
-        <div class="section-title">👥 Convives</div>
-        <div class="section-content">
-          <div class="field-grid">
-            <div class="field"><label>Adultes – Vin d'honneur</label><input type="number" id="f_adultes_vinh" /></div>
-            <div class="field"><label>Adultes – Repas</label><input type="number" id="f_adultes_repas" /></div>
-            <div class="field"><label>Adultes – Végé/Végan</label><input type="number" id="f_adultes_vege" /></div>
-            <div class="field"><label>Enfants – Vin d'honneur</label><input type="number" id="f_enfants_vinh" /></div>
-            <div class="field"><label>Enfants – Repas</label><input type="number" id="f_enfants_repas" /></div>
-            <div class="field"><label>Enfants – Végé/Végan</label><input type="number" id="f_enfants_vege" /></div>
-          </div>
-        </div>
-      </div>
+TEXTE DE LA FACTURE :
+---
+${text}
+---
 
-      <!-- BOISSONS -->
-      <div class="section">
-        <div class="section-title">🍷 Boissons</div>
-        <div class="section-content">
-          <div class="field-grid">
-            <div class="field"><label>Vin d'honneur</label><input type="text" id="f_b_vinh" /></div>
-            <div class="field"><label>Repas</label><input type="text" id="f_b_repas" /></div>
-            <div class="field"><label>Dessert</label><input type="text" id="f_b_dessert" /></div>
-          </div>
-        </div>
-      </div>
+Reponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte avant ou apres) :
 
-      <!-- MENU ADULTE -->
-      <div class="section">
-        <div class="section-title">🍽️ Menu Adulte</div>
-        <div class="section-content">
-          <p class="subsection-label">Pièces cocktail sélectionnées</p>
-          <div class="cocktail-list" id="cocktailList"></div>
+{"invoice_ref":"numero de facture","client":"nom complet du client ou organisation","date_prestation":"date de levenement pas la date de facture","lieu":"lieu ville de la prestation","adultes_repas":"nombre de convives adultes pour le repas","adultes_vinh":"nombre adultes vin dhonneur si different sinon meme valeur","enfants_repas":"nombre enfants si mentionne sinon vide","cocktails":["liste des noms de cocktails mentionnes ou tableau vide si non precise"],"entree":"entree du diner","plat":"plat principal","accompagnement":"accompagnement du plat","fromage":"fromage si mentionne","dessert":"dessert","cafe":"Inclus si le cafe est mentionne sinon vide","pain":"Inclus si le pain est mentionne sinon vide","service_inclus":"Oui ou Non selon la facture","vaisselle_inclus":"Oui ou Non","nappage_inclus":"Oui ou Non si nappage est facture comme prestation separee cest Oui","mobilier_inclus":"Oui ou Non mobilier non compris cest Non","boissons_info":"info sur les boissons soft alcool compris ou non","commentaires":"informations utiles transport conditions particulieres allergies remarques"}`;
 
-          <p class="subsection-label" style="margin-top:20px;">Ateliers</p>
-          <div class="field" style="margin-bottom:20px;"><input type="text" id="f_ateliers" placeholder="Ateliers sélectionnés…" /></div>
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 1500 }
+      })
+    });
 
-          <div class="field-grid">
-            <div class="field span-2"><label>Entrée / Mise en bouche</label><input type="text" id="f_entree" /></div>
-            <div class="field span-2"><label>Le plat</label><input type="text" id="f_plat" /></div>
-            <div class="field span-2"><label>Accompagnement</label><input type="text" id="f_accompagnement" /></div>
-            <div class="field span-2"><label>Le fromage</label><input type="text" id="f_fromage" /></div>
-            <div class="field span-2"><label>Le dessert</label><input type="text" id="f_dessert" /></div>
-            <div class="field"><label>Le café</label><input type="text" id="f_cafe" /></div>
-            <div class="field"><label>Le pain</label><input type="text" id="f_pain" /></div>
-          </div>
-        </div>
-      </div>
+    if (!response.ok) {
+      const err = await response.json();
+      hideStatus();
+      if (response.status === 400 || response.status === 403) {
+        alert('Clé API invalide.\nVérifiez votre clé dans les paramètres (⚙️).\nObtenez votre clé gratuite sur console.anthropic.com');
+        openSettings();
+        return;
+      }
+      throw new Error(err.error?.message || `Erreur API (${response.status})`);
+    }
 
-      <!-- LOGISTIQUE -->
-      <div class="section">
-        <div class="section-title">⚙️ Logistique – Inclus dans la prestation</div>
-        <div class="section-content">
-          <div class="logistique-grid">
-            <div class="logistique-item" id="wrap_service">
-              <span class="log-icon">🍽️</span>
-              <span class="log-label">Service</span>
-              <select id="f_service" onchange="updateLogStyle('service')">
-                <option value="">–</option><option value="Oui">Oui ✅</option><option value="Non">Non ❌</option>
-              </select>
-            </div>
-            <div class="logistique-item" id="wrap_mobilier">
-              <span class="log-icon">🪑</span>
-              <span class="log-label">Mobilier</span>
-              <select id="f_mobilier" onchange="updateLogStyle('mobilier')">
-                <option value="">–</option><option value="Oui">Oui ✅</option><option value="Non">Non ❌</option>
-              </select>
-            </div>
-            <div class="logistique-item" id="wrap_vaisselle">
-              <span class="log-icon">🥂</span>
-              <span class="log-label">Vaisselle</span>
-              <select id="f_vaisselle" onchange="updateLogStyle('vaisselle')">
-                <option value="">–</option><option value="Oui">Oui ✅</option><option value="Non">Non ❌</option>
-              </select>
-            </div>
-            <div class="logistique-item" id="wrap_nappage">
-              <span class="log-icon">🎀</span>
-              <span class="log-label">Nappage</span>
-              <select id="f_nappage" onchange="updateLogStyle('nappage')">
-                <option value="">–</option><option value="Oui">Oui ✅</option><option value="Non">Non ❌</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
+    const data = await response.json();
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const clean = raw.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    fillFiche(parsed, filename);
+    hideStatus();
 
-      <!-- MENU ENFANT -->
-      <div class="section">
-        <div class="section-title">🧒 Menu Enfant</div>
-        <div class="section-content">
-          <div class="field-grid">
-            <div class="field"><label>Entrée</label><input type="text" id="f_enf_entree" /></div>
-            <div class="field"><label>Plat</label><input type="text" id="f_enf_plat" /></div>
-            <div class="field"><label>Dessert</label><input type="text" id="f_enf_dessert" /></div>
-          </div>
-        </div>
-      </div>
+  } catch (err) {
+    hideStatus();
+    alert('Erreur lors de l\'analyse :\n' + err.message);
+  }
+}
 
-      <!-- LES PETITS PLUS -->
-      <div class="section">
-        <div class="section-title">✨ Les Petits Plus</div>
-        <div class="section-content">
-          <div class="field-grid">
-            <div class="field"><label>Les petits creux de la nuit</label><input type="text" id="f_nuit" /></div>
-            <div class="field"><label>Le lendemain</label><input type="text" id="f_lendemain" /></div>
-          </div>
-        </div>
-      </div>
+// ── FILL FICHE ──
+function fillFiche(data, filename) {
+  set('f_client', data.client);
+  set('f_date', data.date_prestation);
+  set('f_lieu', data.lieu);
+  set('f_adultes_repas', data.adultes_repas);
+  set('f_adultes_vinh', data.adultes_vinh || data.adultes_repas);
+  set('f_enfants_repas', data.enfants_repas);
+  set('f_entree', data.entree);
+  set('f_plat', data.plat);
+  set('f_accompagnement', data.accompagnement);
+  set('f_fromage', data.fromage);
+  set('f_dessert', data.dessert);
+  set('f_cafe', data.cafe);
+  set('f_pain', data.pain);
 
-      <!-- COMMENTAIRES -->
-      <div class="section">
-        <div class="section-title">💬 Commentaires</div>
-        <div class="section-content">
-          <div class="field">
-            <textarea id="f_commentaires" rows="5" placeholder="Allergies, remarques, demandes particulières, transport, conditions spécifiques…"></textarea>
-          </div>
-        </div>
-      </div>
+  let commentaires = data.commentaires || '';
+  if (data.boissons_info) commentaires = (commentaires ? commentaires + '\n\n' : '') + 'Boissons : ' + data.boissons_info;
+  set('f_commentaires', commentaires);
 
-    </div>
+  setLog('service', data.service_inclus);
+  setLog('vaisselle', data.vaisselle_inclus);
+  setLog('nappage', data.nappage_inclus);
+  setLog('mobilier', data.mobilier_inclus);
 
-    <div class="actions">
-      <button class="btn btn-secondary" onclick="resetAll()">🔄 Nouvelle facture</button>
-      <button class="btn btn-secondary" onclick="window.print()">🖨️ Imprimer</button>
-      <button class="btn btn-gold" onclick="downloadCSV()">📥 Exporter CSV</button>
-    </div>
+  buildCocktailList(data.cocktails || []);
 
-  </div>
+  document.getElementById('invoiceRef').textContent = 'Facture ' + (data.invoice_ref || filename);
+  document.getElementById('dateGenerated').textContent = 'Fiche générée le ' + new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 
-</div>
+  document.getElementById('uploadZone').classList.add('hidden');
+  document.getElementById('fiche').classList.remove('hidden');
+  document.getElementById('fiche').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
-<script src="app.js"></script>
-</body>
-</html>
+function set(id, value) {
+  const el = document.getElementById(id);
+  if (el && value !== undefined && value !== null) el.value = value;
+}
+
+function setLog(name, value) {
+  const normalized = (value || '').toLowerCase() === 'oui' ? 'Oui' : (value || '').toLowerCase() === 'non' ? 'Non' : value;
+  const select = document.getElementById('f_' + name);
+  if (select && normalized) select.value = normalized;
+  updateLogStyle(name);
+}
+
+function updateLogStyle(name) {
+  const select = document.getElementById('f_' + name);
+  const wrap = document.getElementById('wrap_' + name);
+  if (!select || !wrap) return;
+  wrap.classList.remove('yes', 'no');
+  if (select.value === 'Oui') wrap.classList.add('yes');
+  else if (select.value === 'Non') wrap.classList.add('no');
+}
+
+// ── RESET ──
+function resetAll() {
+  document.getElementById('fiche').classList.add('hidden');
+  document.getElementById('uploadZone').classList.remove('hidden');
+  document.getElementById('fileInput').value = '';
+  buildCocktailList();
+  ['f_client','f_date','f_lieu','f_accueillant','f_tel',
+   'f_cuisine_arrivee','f_service_arrivee','f_invites_arrivee','f_ceremonie',
+   'f_h_vinh','f_h_entree','f_h_plat','f_h_fromage','f_h_dessert',
+   'f_adultes_vinh','f_adultes_repas','f_adultes_vege',
+   'f_enfants_vinh','f_enfants_repas','f_enfants_vege',
+   'f_b_vinh','f_b_repas','f_b_dessert',
+   'f_ateliers','f_entree','f_plat','f_accompagnement',
+   'f_fromage','f_dessert','f_cafe','f_pain',
+   'f_enf_entree','f_enf_plat','f_enf_dessert',
+   'f_nuit','f_lendemain','f_commentaires'
+  ].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['service','vaisselle','nappage','mobilier'].forEach(name => {
+    const s = document.getElementById('f_' + name);
+    if (s) s.value = '';
+    updateLogStyle(name);
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ── CSV EXPORT ──
+function downloadCSV() {
+  const cocktailsChecked = [...document.querySelectorAll('#cocktailList input:checked')]
+    .map(cb => cb.parentElement.textContent.trim()).join(' | ');
+
+  const rows = [
+    ['FICHE CONTACT CLIENT - PRESTATION MSC'],
+    ['Reference', document.getElementById('invoiceRef').textContent],
+    [''],
+    ['=== COORDONNEES ==='],
+    ['Client', val('f_client')],
+    ['Date prestation', val('f_date')],
+    ['Lieu', val('f_lieu')],
+    ['Accueillant', val('f_accueillant')],
+    ['Telephone', val('f_tel')],
+    [''],
+    ['=== HORAIRES ==='],
+    ['Cuisine - Arrivee', val('f_cuisine_arrivee')],
+    ['Service - Arrivee', val('f_service_arrivee')],
+    ['Invites - Arrivee', val('f_invites_arrivee')],
+    ['Ceremonie laique', val('f_ceremonie')],
+    ['Vin d honneur', val('f_h_vinh')],
+    ['Entree', val('f_h_entree')],
+    ['Plat', val('f_h_plat')],
+    ['Fromage', val('f_h_fromage')],
+    ['Dessert', val('f_h_dessert')],
+    [''],
+    ['=== CONVIVES ==='],
+    ['Adultes - Vin d honneur', val('f_adultes_vinh')],
+    ['Adultes - Repas', val('f_adultes_repas')],
+    ['Adultes - Vege/Vegan', val('f_adultes_vege')],
+    ['Enfants - Vin d honneur', val('f_enfants_vinh')],
+    ['Enfants - Repas', val('f_enfants_repas')],
+    [''],
+    ['=== MENU ADULTE ==='],
+    ['Cocktail selectionne', cocktailsChecked],
+    ['Entree / Mise en bouche', val('f_entree')],
+    ['Le plat', val('f_plat')],
+    ['Accompagnement', val('f_accompagnement')],
+    ['Le fromage', val('f_fromage')],
+    ['Le dessert', val('f_dessert')],
+    ['Le cafe', val('f_cafe')],
+    ['Le pain', val('f_pain')],
+    [''],
+    ['=== LOGISTIQUE ==='],
+    ['Service', val('f_service')],
+    ['Mobilier', val('f_mobilier')],
+    ['Vaisselle', val('f_vaisselle')],
+    ['Nappage', val('f_nappage')],
+    [''],
+    ['=== MENU ENFANT ==='],
+    ['Entree', val('f_enf_entree')],
+    ['Plat', val('f_enf_plat')],
+    ['Dessert', val('f_enf_dessert')],
+    [''],
+    ['=== COMMENTAIRES ==='],
+    [val('f_commentaires')],
+  ];
+
+  const csv = rows.map(r => r.map(c => '"' + (c || '').replace(/"/g, '""') + '"').join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const client = val('f_client').replace(/\s+/g, '_').slice(0, 30);
+  const date = val('f_date').replace(/\//g, '-').slice(0, 10);
+  a.download = 'Fiche_Prestation_' + (client || 'MSC') + '_' + (date || new Date().toLocaleDateString('fr-FR')) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function val(id) {
+  const el = document.getElementById(id);
+  return el ? el.value : '';
+}
